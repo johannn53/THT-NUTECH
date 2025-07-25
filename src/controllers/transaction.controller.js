@@ -54,6 +54,7 @@ exports.topUpBalance = async (req, res) => {
 
 // CREATE TRANSACTION
 exports.createTransaction = async (req, res) => {
+  const client = await db.connect(); // START TRANSACTION
   try {
     // GET USER ID FROM JWT
     const userId = req.user.id;
@@ -71,9 +72,13 @@ exports.createTransaction = async (req, res) => {
     // UPPERCASE SERVICE CODE
     const service_code = rawServiceCode.toUpperCase();
 
-    // AMBIL SERVICE CODE DARI TABLE SERVICE
-    const serviceResult = await db.query(`SELECT * FROM services WHERE service_code = $1`, [service_code]);
-    if (serviceResult.rows.length === 0) {
+    // BEGIN (BUAT HINDARIN RACE CONDITION)
+    await client.query('BEGIN');
+
+    // AMBIL SERVICE
+    const serviceResult = await client.query(`SELECT * FROM services WHERE service_code = $1`, [service_code]);
+    if (!serviceResult.rows.length) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         status: 102,
         message: 'Service ataus Layanan tidak ditemukan',
@@ -83,12 +88,13 @@ exports.createTransaction = async (req, res) => {
 
     const service = serviceResult.rows[0];
 
-    // AMBIL BALANCE USER
-    const userResult = await db.query(`SELECT balance FROM users WHERE id = $1`, [userId]);
+    // LOCK USER BALANCE
+    const userResult = await client.query(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [userId]);
     const balance = userResult.rows[0].balance;
 
     // KALKULASI & VALIDASI BALANCE USER
     if (balance < service.service_tariff) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         status: 104,
         message: 'Saldo tidak cukup',
@@ -101,8 +107,7 @@ exports.createTransaction = async (req, res) => {
       .toString()
       .padStart(3, '0')}`;
 
-    // SAVE TRANSACTION DATA
-    const transactionResult = await db.query(
+    const transactionResult = await client.query(
       `INSERT INTO transactions
         (user_id, transaction_type, amount, service_code, service_name, invoice_number, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -118,8 +123,7 @@ exports.createTransaction = async (req, res) => {
       ]
     );
 
-    // UPDATE USER BALANCE
-    await db.query(
+    await client.query(
       `UPDATE users 
         SET balance = balance - $1,
         updated_at = CURRENT_TIMESTAMP
@@ -127,7 +131,8 @@ exports.createTransaction = async (req, res) => {
       [service.service_tariff, userId]
     );
 
-    // RETURN RESPONSE
+    await client.query('COMMIT');
+
     return res.status(200).json({
       status: 0,
       message: 'Transaksi berhasil',
@@ -141,11 +146,14 @@ exports.createTransaction = async (req, res) => {
       },
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     return res.status(500).json({
       status: 500,
       message: 'Internal Server Error',
       data: null,
     });
+  } finally {
+    client.release(); // RELEASE CONNECTION
   }
 };
 
