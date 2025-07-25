@@ -140,7 +140,7 @@ exports.getBalance = async (req, res) => {
     const userId = req.user.id;
 
     // GET BALANCE INFO DARI USER ID
-    const getUserBalance = await db.query(`SELECT balance FROM users WHERE id = $1`, [userId]);
+    const getUserBalance = await db.query(`SELECT balance::INT FROM users WHERE id = $1`, [userId]);
 
     // VALIDATION USER NOT FOUND
     if (!getUserBalance.rows.length) {

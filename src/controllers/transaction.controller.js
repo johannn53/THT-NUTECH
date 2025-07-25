@@ -40,7 +40,7 @@ exports.topUpBalance = async (req, res) => {
       status: 0,
       message: 'Top Up Balance berhasil',
       data: {
-        balance: updateUserBalance.rows[0].balance,
+        balance: Number(updateUserBalance.rows[0].balance),
       },
     });
   } catch (error) {
@@ -141,7 +141,7 @@ exports.createTransaction = async (req, res) => {
         service_code: service.service_code,
         service_name: service.service_name,
         transaction_type: 'PAYMENT',
-        total_amount: service.service_tariff,
+        total_amount: Number(service.service_tariff),
         created_on: transactionResult.rows[0].created_at,
       },
     });
